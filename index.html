@@ -519,15 +519,19 @@ function resetAll(){
   upd();
 }
 
-// ── Web Speech API (일본어 음성 자동 선택) ────────────────
+// ── Web Speech API — 안드로이드 호환 강화 ─────────────────
 let curIdx = -1, playing = false, stopFlag = false;
 let jaVoice = null;
+let voicesLoaded = false;
 
 function loadVoices(){
   const all = window.speechSynthesis.getVoices();
-  const ja  = all.filter(v => v.lang === 'ja-JP' || v.lang.startsWith('ja'));
-  // 우선순위: Google 일본어 > Microsoft > Apple Kyoko/O-Ren > 기타
-  // 여성 목소리 우선: Kyoko(Apple여성) > Haruka(MS여성) > Nanami(MS여성) > Google여성 > 기타
+  if(!all.length) return; // 아직 로드 안 됨
+  voicesLoaded = true;
+
+  const ja = all.filter(v => v.lang === 'ja-JP' || v.lang === 'ja' || v.lang.startsWith('ja-'));
+
+  // 여성 음성 우선, 안드로이드 Google TTS 포함
   jaVoice = ja.find(v => v.name.includes('Kyoko'))
           || ja.find(v => v.name.includes('Haruka'))
           || ja.find(v => v.name.includes('Nanami'))
@@ -541,15 +545,33 @@ function loadVoices(){
     badge.textContent = '🔊 ' + jaVoice.name;
     badge.style.cssText = 'background:rgba(124,106,255,.15);border-color:rgba(124,106,255,.4);color:#a89fff;';
   } else {
-    badge.textContent = '⚠️ 일본어 음성 없음 — Chrome 권장';
+    badge.textContent = '⚠️ 일본어 음성 없음 — 설정에서 일본어 TTS 설치 필요';
     badge.style.cssText = 'background:rgba(255,92,92,.1);border-color:rgba(255,92,92,.3);color:#ff9999;';
   }
 }
 
-// 음성 목록은 비동기로 로드됨 — 두 가지 방법 모두 사용
+// 안드로이드는 onvoiceschanged가 늦게 뜨거나 안 뜨는 경우 있음 → 폴링으로 보완
 window.speechSynthesis.onvoiceschanged = loadVoices;
-setTimeout(loadVoices, 300);
-setTimeout(loadVoices, 1000); // 느린 기기 대비 재시도
+let voicePoll = setInterval(() => {
+  if(voicesLoaded){ clearInterval(voicePoll); return; }
+  loadVoices();
+}, 200);
+setTimeout(() => clearInterval(voicePoll), 5000);
+
+// ── 안드로이드 Chrome: speechSynthesis가 15초 이상 재생 시 멈추는 버그 방지
+let keepAliveTimer = null;
+function startKeepAlive(){
+  stopKeepAlive();
+  keepAliveTimer = setInterval(() => {
+    if(window.speechSynthesis.speaking){
+      window.speechSynthesis.pause();
+      window.speechSynthesis.resume();
+    }
+  }, 10000);
+}
+function stopKeepAlive(){
+  if(keepAliveTimer){ clearInterval(keepAliveTimer); keepAliveTimer = null; }
+}
 
 function clearAll(cancelSpeech = true){
   document.querySelectorAll('.card').forEach(c => {
@@ -557,42 +579,44 @@ function clearAll(cancelSpeech = true){
     const b = c.querySelector('.play-btn');
     if(b) b.textContent = '▶';
   });
-  if(cancelSpeech) window.speechSynthesis.cancel();
+  if(cancelSpeech){
+    window.speechSynthesis.cancel();
+    stopKeepAlive();
+  }
   playing = false; curIdx = -1;
 }
 
 function doSpeak(text, cb){
   window.speechSynthesis.cancel();
+  // 안드로이드: cancel() 후 바로 speak() 하면 무시되는 버그 → 250ms 대기
   setTimeout(() => {
     const u = new SpeechSynthesisUtterance(text);
-    u.lang    = 'ja-JP';
-    u.rate    = 0.65;
-    u.pitch   = 1.0;
-    u.volume  = 1.0;
+    u.lang   = 'ja-JP';
+    u.rate   = 0.65;
+    u.pitch  = 1.0;
+    u.volume = 1.0;
     if(jaVoice) u.voice = jaVoice;
-    u.onend   = cb;
-    u.onerror = cb;
+    u.onstart = () => startKeepAlive();
+    u.onend   = () => { stopKeepAlive(); cb(); };
+    u.onerror = (e) => {
+      stopKeepAlive();
+      // 안드로이드에서 'interrupted' 에러는 정상 취소 — 무시
+      if(e.error !== 'interrupted') cb();
+    };
     window.speechSynthesis.speak(u);
-  }, 1000); // 1초 후 발음 시작
+  }, 250);
 }
 
 function speakOne(idx){
-  if(playing && curIdx === idx){
-    clearAll();
-    return;
-  }
-  // 이전 카드 playing 해제
-  document.querySelectorAll('.card').forEach(c => {
-    c.classList.remove('playing');
-    c.style.animation = '';
-  });
+  if(playing && curIdx === idx){ clearAll(); return; }
+
+  // 이전 카드 초기화 (내용은 건드리지 않음)
+  document.querySelectorAll('.card').forEach(c => c.classList.remove('playing'));
   document.querySelectorAll('.play-btn').forEach(b => b.textContent = '▶');
   window.speechSynthesis.cancel();
+  stopKeepAlive();
 
   const card = document.getElementById('c' + idx);
-  card.style.animation = 'none'; // fadeUp 재실행 완전 차단
-  card.style.opacity   = '1';
-  card.style.transform = 'none';
   card.classList.add('playing');
   card.querySelector('.play-btn').textContent = '■';
   playing = true; curIdx = idx;
@@ -600,27 +624,52 @@ function speakOne(idx){
   doSpeak(T[idx], () => { if(curIdx === idx) clearAll(false); });
 }
 
-async function speakAll(){
+function speakAll(){
   if(playing){ clearAll(); return; }
   stopFlag = false;
-  for(let i = 0; i < T.length; i++){
-    if(stopFlag) break;
-    await new Promise(res => {
-      clearAll();
-      const card = document.getElementById('c' + i);
-      card.classList.add('playing');
-      card.querySelector('.play-btn').textContent = '■';
-      playing = true; curIdx = i;
-      card.scrollIntoView({ behavior:'smooth', block:'center' });
-      doSpeak(T[i], () => {
-        card.classList.remove('playing');
-        card.querySelector('.play-btn').textContent = '▶';
-        playing = false; curIdx = -1;
-        setTimeout(res, stopFlag ? 0 : 650);
-      });
-    });
-  }
-  clearAll();
+  speakStep(0);
+}
+
+function speakStep(i){
+  if(stopFlag || i >= T.length){ clearAll(); return; }
+
+  document.querySelectorAll('.card').forEach(c => c.classList.remove('playing'));
+  document.querySelectorAll('.play-btn').forEach(b => b.textContent = '▶');
+
+  const card = document.getElementById('c' + i);
+  card.classList.add('playing');
+  card.querySelector('.play-btn').textContent = '■';
+  playing = true; curIdx = i;
+  card.scrollIntoView({ behavior:'smooth', block:'center' });
+
+  window.speechSynthesis.cancel();
+  setTimeout(() => {
+    if(stopFlag){ clearAll(); return; }
+
+    const u = new SpeechSynthesisUtterance(T[i]);
+    u.lang   = 'ja-JP';
+    u.rate   = 0.65;
+    u.pitch  = 1.0;
+    u.volume = 1.0;
+    if(jaVoice) u.voice = jaVoice;
+
+    u.onstart = () => startKeepAlive();
+    u.onend   = () => {
+      stopKeepAlive();
+      card.classList.remove('playing');
+      card.querySelector('.play-btn').textContent = '▶';
+      playing = false; curIdx = -1;
+      if(!stopFlag) setTimeout(() => speakStep(i + 1), 700);
+    };
+    u.onerror = (e) => {
+      stopKeepAlive();
+      if(e.error === 'interrupted') return; // 정상 취소
+      card.classList.remove('playing');
+      card.querySelector('.play-btn').textContent = '▶';
+      playing = false; curIdx = -1;
+    };
+    window.speechSynthesis.speak(u);
+  }, 250);
 }
 
 upd();
