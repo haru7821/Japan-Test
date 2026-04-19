@@ -212,14 +212,14 @@
 // 각 항목: [표시용JP, 발음한글, TTS전용히라가나]
 const D = {
   country:[
-    ["かんこく",   "칸코쿠",   "かんこくからきました"],
-    ["にほん",     "니혼",     "にほんからきました"],
-    ["ちゅうごく", "추우고쿠", "ちゅうごくからきました"],
-    ["アメリカ",   "아메리카", "アメリカからきました"],
-    ["イギリス",   "이기리스", "イギリスからきました"],
-    ["フランス",   "후란스",   "フランスからきました"],
-    ["とうきょう", "토우쿄우", "とうきょうからきました"],
-    ["おおさか",   "오오사카", "おおさかからきました"],
+    ["かんこく",   "칸코쿠",   "かんこく"],
+    ["にほん",     "니혼",     "にほん"],
+    ["ちゅうごく", "추우고쿠", "ちゅうごく"],
+    ["アメリカ",   "아메리카", "アメリカ"],
+    ["イギリス",   "이기리스", "イギリス"],
+    ["フランス",   "후란스",   "フランス"],
+    ["とうきょう", "토우쿄우", "とうきょう"],
+    ["おおさか",   "오오사카", "おおさか"],
   ],
   school:[
     ["ちゅうがく", "추우가쿠", "ちゅうがく"],
@@ -268,15 +268,15 @@ const D = {
   ],
 };
 
-// TTS 문장 - 히라가나/가타카나만 사용해야 일본어 TTS가 올바르게 발음
+// TTS 문장 - 자연스러운 끊어읽기
 let T = [
-  "はじめまして",
-  "チェユナです",
-  "かんこくからきました",
-  "ファミョンこうこう、にねんせいです",
-  "さんにんかぞくで、ちちとははとわたしです",
-  "しゅみはやきゅうです",
-  "よろしくおねがいします",
+  "はじめまして。",
+  "チェユナです。",
+  "かんこくから きました。",
+  "ファミョンこうこう、にねんせいです。",
+  "さんにんかぞくで、ちちとは。ははとは。わたしです。",
+  "しゅみは やきゅうです。",
+  "よろしく おねがいします。",
 ];
 
 function gi(id){ return parseInt(document.getElementById(id).value); }
@@ -288,24 +288,24 @@ function upd(){
   // 03
   document.getElementById('j2').textContent = D.country[cn][0]+'から　きました。';
   document.getElementById('f2').textContent = D.country[cn][1]+'카라　키마시타';
-  T[2] = D.country[cn][2];
+  T[2] = D.country[cn][2] + 'から きました。';
 
   // 04
   document.getElementById('j3').textContent = D.school[sc][0]+'　'+D.grade[gr][0]+'です。';
   document.getElementById('f3').textContent = D.school[sc][1]+'　'+D.grade[gr][1]+' 데스';
-  T[3] = D.school[sc][2]+'、'+D.grade[gr][2]+'です';
+  T[3] = D.school[sc][2] + '、' + D.grade[gr][2] + 'です。';
 
   // 05
   document.getElementById('j4').innerHTML =
     D.famnum[fn][0]+'かぞくで、<br>'+D.fam[f1][0]+'と　'+D.fam[f2][0]+'と　わたしです。';
   document.getElementById('f4').textContent =
     D.famnum[fn][1]+' 카조쿠데、'+D.fam[f1][1]+'토 '+D.fam[f2][1]+'토 와타시데스';
-  T[4] = D.famnum[fn][2]+'かぞくで、'+D.fam[f1][2]+'と'+D.fam[f2][2]+'とわたしです';
+  T[4] = D.famnum[fn][2] + 'かぞくで、' + D.fam[f1][2] + 'とは。' + D.fam[f2][2] + 'とは。わたしです。';
 
   // 06
   document.getElementById('j5').textContent = 'しゅみは　'+D.hobby[hb][0]+'です。';
   document.getElementById('f5').textContent = '슈미와　'+D.hobby[hb][1]+' 데스';
-  T[5] = 'しゅみは'+D.hobby[hb][2]+'です';
+  T[5] = 'しゅみは ' + D.hobby[hb][2] + 'です。';
 }
 
 function resetAll(){
@@ -319,84 +319,92 @@ function resetAll(){
   upd();
 }
 
-// ── Voice ─────────────────────────────────────────────────
+// ── Web Speech API (일본어 음성 자동 선택) ────────────────
+let curIdx = -1, playing = false, stopFlag = false;
 let jaVoice = null;
 
 function loadVoices(){
   const all = window.speechSynthesis.getVoices();
-  const ja  = all.filter(v => v.lang==='ja-JP' || v.lang.startsWith('ja'));
-  // Google > Microsoft > Apple > 기타 순
-  jaVoice = ja.find(v=>v.name.includes('Google'))
-           || ja.find(v=>v.name.includes('Microsoft'))
-           || ja.find(v=>v.name.includes('Kyoko'))
-           || ja.find(v=>v.name.includes('O-Ren'))
-           || ja[0] || null;
+  const ja  = all.filter(v => v.lang === 'ja-JP' || v.lang.startsWith('ja'));
+  // 우선순위: Google 일본어 > Microsoft > Apple Kyoko/O-Ren > 기타
+  // 여성 목소리 우선: Kyoko(Apple여성) > Haruka(MS여성) > Nanami(MS여성) > Google여성 > 기타
+  jaVoice = ja.find(v => v.name.includes('Kyoko'))
+          || ja.find(v => v.name.includes('Haruka'))
+          || ja.find(v => v.name.includes('Nanami'))
+          || ja.find(v => v.name.includes('O-Ren'))
+          || ja.find(v => v.name.includes('Google') && v.lang.startsWith('ja'))
+          || ja.find(v => v.name.includes('Microsoft') && v.lang.startsWith('ja'))
+          || ja[0] || null;
 
   const badge = document.getElementById('vbadge');
   if(jaVoice){
-    badge.textContent = '🔊 '+jaVoice.name;
-    badge.style.cssText='background:#e8f5e9;border-color:#27ae60;color:#27ae60;';
+    badge.textContent = '🔊 ' + jaVoice.name;
+    badge.style.cssText = 'background:#e8f5e9;border-color:#27ae60;color:#27ae60;';
   } else {
-    badge.textContent = '⚠️ 기기 기본 음성';
-    badge.style.cssText='background:#fff8e1;border-color:#b8860b;color:#b8860b;';
+    badge.textContent = '⚠️ 일본어 음성 없음 — Chrome 권장';
+    badge.style.cssText = 'background:#fdecea;border-color:#c0392b;color:#c0392b;';
   }
 }
-if(speechSynthesis.onvoiceschanged !== undefined)
-  speechSynthesis.onvoiceschanged = loadVoices;
-setTimeout(loadVoices, 400);
 
-// ── TTS ───────────────────────────────────────────────────
-let curIdx = -1, playing = false, stopFlag = false;
+// 음성 목록은 비동기로 로드됨 — 두 가지 방법 모두 사용
+window.speechSynthesis.onvoiceschanged = loadVoices;
+setTimeout(loadVoices, 300);
+setTimeout(loadVoices, 1000); // 느린 기기 대비 재시도
 
 function clearAll(){
-  document.querySelectorAll('.card').forEach(c=>{
+  document.querySelectorAll('.card').forEach(c => {
     c.classList.remove('playing');
-    const b=c.querySelector('.play-btn');
-    if(b) b.textContent='▶';
+    const b = c.querySelector('.play-btn');
+    if(b) b.textContent = '▶';
   });
-  playing=false; curIdx=-1;
+  window.speechSynthesis.cancel();
+  playing = false; curIdx = -1;
 }
 
 function doSpeak(text, cb){
-  speechSynthesis.cancel();
-  setTimeout(()=>{
+  window.speechSynthesis.cancel();
+  setTimeout(() => {
     const u = new SpeechSynthesisUtterance(text);
-    u.lang='ja-JP'; u.rate=0.78; u.pitch=1.05; u.volume=1;
-    if(jaVoice) u.voice=jaVoice;
-    u.onend=cb; u.onerror=cb;
-    speechSynthesis.speak(u);
-  }, 130);
+    u.lang    = 'ja-JP';
+    u.rate    = 0.65;   // 천천히 — 연습용
+    u.pitch   = 1.0;
+    u.volume  = 1.0;
+    if(jaVoice) u.voice = jaVoice;
+    u.onend   = cb;
+    u.onerror = cb;
+    window.speechSynthesis.speak(u);
+  }, 150);
 }
 
 function speakOne(idx){
-  if(playing && curIdx===idx){ stopFlag=true; speechSynthesis.cancel(); clearAll(); return; }
-  stopFlag=true; speechSynthesis.cancel(); clearAll(); stopFlag=false;
+  if(playing && curIdx === idx){ clearAll(); return; }
+  clearAll(); stopFlag = false;
 
-  const card=document.getElementById('c'+idx);
+  const card = document.getElementById('c' + idx);
   card.classList.add('playing');
-  card.querySelector('.play-btn').textContent='■';
-  playing=true; curIdx=idx;
+  card.querySelector('.play-btn').textContent = '■';
+  playing = true; curIdx = idx;
 
-  doSpeak(T[idx], ()=>{ if(curIdx===idx) clearAll(); });
+  doSpeak(T[idx], () => { if(curIdx === idx) clearAll(); });
 }
 
 async function speakAll(){
-  if(playing){ stopFlag=true; speechSynthesis.cancel(); clearAll(); return; }
-  stopFlag=false;
-  for(let i=0;i<T.length;i++){
+  if(playing){ clearAll(); return; }
+  stopFlag = false;
+  for(let i = 0; i < T.length; i++){
     if(stopFlag) break;
-    await new Promise(res=>{
+    await new Promise(res => {
       clearAll();
-      const card=document.getElementById('c'+i);
+      const card = document.getElementById('c' + i);
       card.classList.add('playing');
-      card.querySelector('.play-btn').textContent='■';
-      playing=true; curIdx=i;
-      card.scrollIntoView({behavior:'smooth',block:'center'});
-      doSpeak(T[i], ()=>{
+      card.querySelector('.play-btn').textContent = '■';
+      playing = true; curIdx = i;
+      card.scrollIntoView({ behavior:'smooth', block:'center' });
+      doSpeak(T[i], () => {
         card.classList.remove('playing');
-        card.querySelector('.play-btn').textContent='▶';
-        playing=false; curIdx=-1;
-        setTimeout(res, stopFlag?0:600);
+        card.querySelector('.play-btn').textContent = '▶';
+        playing = false; curIdx = -1;
+        setTimeout(res, stopFlag ? 0 : 650);
       });
     });
   }
